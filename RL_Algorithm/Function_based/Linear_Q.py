@@ -4,7 +4,7 @@ from RL_Algorithm.RL_base_function import BaseAlgorithm
 import torch
 
 
-class Linear_QN(BaseAlgorithm):
+class Linear_Q(BaseAlgorithm):
     def __init__(
             self,
             num_of_action: int = 2,
@@ -58,18 +58,13 @@ class Linear_QN(BaseAlgorithm):
 
         """
         # ========= put your code here ========= #
-        x = obs                           # Current state vector
-        x_next = next_obs                # Next state vector
-
-        q_current = x @ self.w[:, action]           # Q(s, a)
-        q_next = np.max(x_next @ self.w)            # max_a' Q(s', a')
-        td_target = reward + (0 if terminated else self.discount_factor * q_next)
+        q_current = self.q(obs, action)
+        q_next = np.max(self.q(next_obs))
+        td_target = reward + (self.discount_factor * q_next)
         td_error = td_target - q_current
 
-        td_error = float(td_error.detach().cpu()) if isinstance(td_error, torch.Tensor) else float(td_error)
-
         # Gradient descent update
-        self.w[:, action] += self.lr * td_error * x
+        self.w[:, action] += self.lr * td_error * obs
 
         self.training_error.append(td_error)
         # ====================================== #
@@ -110,42 +105,31 @@ class Linear_QN(BaseAlgorithm):
         # Step counter (int)
         # ========= put your code here ========= #
         obs, _ = env.reset()
-        policy_tensor = obs['policy']
-        state = np.array([0,0,0,0], dtype=np.float32)
-        state[0] = policy_tensor[0, 0].item()  # First value
-        state[1] = policy_tensor[0, 1].item()  # Second value
-        state[2] = policy_tensor[0, 2].item()   # Third value
-        state[3] = policy_tensor[0, 3].item()   # Fourth value
         done = False
-        total_reward = 0.0
-        steps = 0
+        cumulative_reward = 0
+        step = 0
 
-        while not done and steps < max_steps:
-            action_index, action_continuous = self.select_action(state)
-            next_obs, reward, terminated, truncated, _ = env.step(action_continuous)
-            done = terminated | truncated
+        while not done and step < max_steps:
+            # agent stepping
+            state = self.extract_policy_state(obs)
+            action_idx, action = self.select_action(state)
 
-            next_policy_tensor = next_obs['policy']
-            next_state = np.array([0,0,0,0], dtype=np.float32)
-            next_state[0] = next_policy_tensor[0, 0].item()  # First value
-            next_state[1] = next_policy_tensor[0, 1].item()  # Second value
-            next_state[2] = next_policy_tensor[0, 2].item()   # Third value
-            next_state[3] = next_policy_tensor[0, 3].item()   # Fourth value
+            # env stepping
+            next_obs, reward, terminated, truncated, _ = env.step(action)
+            reward_value = reward.item()
+            terminated_value = terminated.item() 
+            cumulative_reward += reward_value
+            done = terminated or truncated
+            
+            state = self.extract_policy_state(obs)
+            next_state = self.extract_policy_state(next_obs)
+            self.update(state, action_idx, reward_value, next_state, done)
 
-            self.update(
-                obs=state,
-                action=action_index,
-                reward=reward,
-                next_obs=next_state,
-                terminated=done
-            )
-
-            state = next_state
-            total_reward += reward
-            steps += 1
+            obs = next_obs
+            step += 1
         self.decay_epsilon()
 
-        return total_reward, steps
+        return cumulative_reward, step
         # ====================================== #
     
 

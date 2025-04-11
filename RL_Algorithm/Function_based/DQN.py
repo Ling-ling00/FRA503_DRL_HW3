@@ -10,6 +10,7 @@ from collections import namedtuple, deque
 import random
 import matplotlib
 import matplotlib.pyplot as plt
+import os
 
 class DQN_network(nn.Module):
     """
@@ -24,7 +25,12 @@ class DQN_network(nn.Module):
     def __init__(self, n_observations, hidden_size, n_actions, dropout):
         super(DQN_network, self).__init__()
         # ========= put your code here ========= #
-        pass
+        self.net = nn.Sequential(
+            nn.Linear(n_observations, hidden_size),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_size, n_actions)
+        )
         # ====================================== #
 
     def forward(self, x):
@@ -38,7 +44,7 @@ class DQN_network(nn.Module):
             Tensor: Q-value estimates for each action.
         """
         # ========= put your code here ========= #
-        pass
+        return self.net(x)
         # ====================================== #
 
 class DQN(BaseAlgorithm):
@@ -89,8 +95,6 @@ class DQN(BaseAlgorithm):
 
         # Experiment with different values and configurations to see how they affect the training process.
         # Remember to document any changes you make and analyze their impact on the agent's performance.
-
-        pass
         # ====================================== #
 
         super(DQN, self).__init__(
@@ -123,7 +127,15 @@ class DQN(BaseAlgorithm):
             Tensor: The selected action.
         """
         # ========= put your code here ========= #
-        pass
+        if np.random.rand() < self.epsilon:
+            action_idx = np.random.randint(self.num_of_action)
+        else:
+            with torch.no_grad():
+                state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
+                q_values = self.policy_net(state_tensor)
+                action_idx = q_values.argmax(1).item()
+
+        return action_idx, self.scale_action(action_idx)
         # ====================================== #
 
     def calculate_loss(self, non_final_mask, non_final_next_states, state_batch, action_batch, reward_batch):
@@ -141,7 +153,11 @@ class DQN(BaseAlgorithm):
             Tensor: Computed loss.
         """
         # ========= put your code here ========= #
-        pass
+        state_action_values = self.policy_net(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze(1)
+        next_state_values = torch.zeros(self.batch_size, device=self.device)
+        next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1)[0].detach()
+        expected_state_action_values = reward_batch + (self.discount_factor * next_state_values)
+        return F.smooth_l1_loss(state_action_values, expected_state_action_values)
         # ====================================== #
 
     def generate_sample(self, batch_size):
@@ -159,12 +175,17 @@ class DQN(BaseAlgorithm):
         # Ensure there are enough samples in memory before proceeding
         # ========= put your code here ========= #
         # Sample a batch from memory
-        batch = self.memory.sample()
+        # batch = self.memory.sample()
         # ====================================== #
         
         # Sample a batch from memory
         # ========= put your code here ========= #
-        pass
+        if len(self.memory) < batch_size:
+            return None
+        states, actions, rewards, next_states, dones = self.memory.sample()
+        non_final_mask = ~dones
+        non_final_next_states = next_states[non_final_mask]
+        return non_final_mask, non_final_next_states, states, actions, rewards
         # ====================================== #
 
     def update_policy(self):
@@ -185,7 +206,11 @@ class DQN(BaseAlgorithm):
 
         # Perform gradient descent step
         # ========= put your code here ========= #
-        pass
+        self.optimizer.zero_grad()
+        loss.backward()
+        nn.utils.clip_grad_value_(self.policy_net.parameters(), 100)
+        self.optimizer.step()
+        return loss.item()
         # ====================================== #
 
     def update_target_networks(self):
@@ -194,17 +219,21 @@ class DQN(BaseAlgorithm):
         """
         # Retrieve the state dictionaries (weights) of both networks
         # ========= put your code here ========= #
-        pass
+        for target_param, policy_param in zip(self.target_net.parameters(), self.policy_net.parameters()):
+            # Apply the soft update rule to each parameter in the target network
+            target_param.data.copy_(
+                self.tau * policy_param.data + (1.0 - self.tau) * target_param.data
+            )
         # ====================================== #
         
         # Apply the soft update rule to each parameter in the target network
         # ========= put your code here ========= #
-        pass
+        
         # ====================================== #
         
         # Load the updated weights into the target network
         # ========= put your code here ========= #
-        pass
+        
         # ====================================== #
 
     def learn(self, env):
@@ -221,23 +250,55 @@ class DQN(BaseAlgorithm):
         # Flag to indicate episode termination (boolean)
         # Step counter (int)
         # ========= put your code here ========= #
-        pass
+        obs_list, _ = env.reset()
+        state_list = self.extract_policy_state(obs_list)
+        num_envs = len(state_list)
+        dones = [False] * num_envs
+        cumulative_rewards = [0.0] * num_envs
+        steps = [0] * num_envs
         # ====================================== #
 
-        while not done:
+        while not all(dones):
             # Predict action from the policy network
             # ========= put your code here ========= #
-            pass
+            actions_idx = []
+            actions = []
+
+            for i, state in enumerate(state_list):
+                if dones[i]:
+                    actions_idx.append(0)
+                    actions.append(torch.tensor([[0.0]], dtype=torch.float32))
+                else:
+                    a_idx, a_cont = self.select_action(state)
+                    actions_idx.append(a_idx)
+                    actions.append(a_cont)
+            actions = torch.cat(actions, dim=0)
             # ====================================== #
 
             # Execute action in the environment and observe next state and reward
             # ========= put your code here ========= #
-            pass
+            next_obs_list, rewards, terminations, truncations, _ = env.step(actions)
+            next_state_list = self.extract_policy_state(next_obs_list)
             # ====================================== #
 
             # Store the transition in memory
             # ========= put your code here ========= #
-            pass
+            for i in range(num_envs):
+                if not dones[i]:
+                    done = bool(terminations[i].item()) or bool(truncations[i].item())
+                    self.memory.add(
+                        torch.tensor(state_list[i], dtype=torch.float32),
+                        actions_idx[i],
+                        rewards[i].item(),
+                        torch.tensor(next_state_list[i], dtype=torch.float32),
+                        done
+                    )
+                    cumulative_rewards[i] += rewards[i].item()
+                    steps[i] += 1
+                    dones[i] = done
+                    state_list[i] = next_state_list[i]
+            if all(dones):
+                self.plot_durations(max(steps), True)
             # ====================================== #
 
             # Update state
@@ -246,12 +307,10 @@ class DQN(BaseAlgorithm):
             self.update_policy()
 
             # Soft update of the target network's weights
-            self.update_weights()
+            self.update_target_networks()
+        self.decay_epsilon()
 
-            timestep += 1
-            if done:
-                self.plot_durations(timestep)
-                break
+        return cumulative_rewards, steps
 
     # Consider modifying this function to visualize other aspects of the training process.
     # ================================================================================== #
@@ -283,3 +342,19 @@ class DQN(BaseAlgorithm):
             else:
                 display.display(plt.gcf())
     # ================================================================================== #
+
+    def save_model(self, path, filename):
+        os.makedirs(path, exist_ok=True)
+        full_path = os.path.join(path, filename)
+        torch.save({
+            'policy_net': self.policy_net.state_dict(),
+            'target_net': self.target_net.state_dict(),
+            'optimizer': self.optimizer.state_dict(),
+        }, full_path)
+
+    def load_model(self, path, filename):
+        full_path = os.path.join(path, filename)
+        checkpoint = torch.load(full_path, map_location=self.device)
+        self.policy_net.load_state_dict(checkpoint['policy_net'])
+        self.target_net.load_state_dict(checkpoint['target_net'])
+        self.optimizer.load_state_dict(checkpoint['optimizer'])

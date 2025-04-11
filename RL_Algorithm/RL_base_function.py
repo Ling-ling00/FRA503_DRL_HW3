@@ -123,13 +123,12 @@ class BaseAlgorithm():
     def q(self, obs, a=None):
         """Returns the linearly-estimated Q-value for a given state and action."""
         # ========= put your code here ========= #
-        x = obs
         if a==None:
             # Get q values from all action in state
-            return x @ self.w
+            return obs @ self.w
         else:
             # Get q values given action & state
-            return x @ self.w[:, a]
+            return obs @ self.w[:, a]
         # ====================================== #
         
     
@@ -181,5 +180,20 @@ class BaseAlgorithm():
         with open(full_path, 'r') as f:
             self.w = np.array(json.load(f))
         # ====================================== #
+
+    def extract_policy_state(self, obs):
+        policy = obs['policy']
+        if policy.shape[0]==1:
+            state = np.array(policy[0, :4].tolist(), dtype=np.float32)
+        else:
+            state = np.array(policy[:, :4].tolist(), dtype=np.float32)
+        
+        # Define bounds as arrays
+        bound = np.array([ 3,  np.deg2rad(24),  5,  5], dtype=np.float32)
+        
+        # Clip to bounds
+        state = np.clip(state, -1*bound, bound)
+        
+        return state / bound
 
 
