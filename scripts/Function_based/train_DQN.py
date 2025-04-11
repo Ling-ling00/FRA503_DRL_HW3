@@ -101,15 +101,15 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # ========================= Can be modified ========================== #
 
     # hyperparameters
-    num_of_action = 5
-    action_range = [-15, 15]  
-    learning_rate = 0.9
-    hidden_dim = 64
-    n_episodes = 1000
+    num_of_action = 7
+    action_range = [-25, 25]  
+    learning_rate = 0.00001
+    hidden_dim = 128
+    n_episodes = 5000
     initial_epsilon = 1.0
     epsilon_decay = 0.9995  
     final_epsilon = 0.1
-    discount = 0.9
+    discount = 0.95
     buffer_size = 5000
     batch_size = 64
 
