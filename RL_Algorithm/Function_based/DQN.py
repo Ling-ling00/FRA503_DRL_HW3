@@ -303,8 +303,8 @@ class DQN(BaseAlgorithm):
                     dones[i] = done
                     state_list[i] = next_state_list[i]
             
-            if all(dones):
-                self.plot_durations(max(steps), False)
+            # if all(dones):
+            #     self.plot_durations(max(steps), False)
             # ====================================== #
 
             # Update state

@@ -161,6 +161,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # reset environment
     timestep = 0
     sum_reward = 0
+    moving_avg_loss = 0
+    loss = 0
     # simulate environment
     while simulation_app.is_running():
         # run everything in inference mode
@@ -178,8 +180,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             moving_avg_window2.append(step)
             moving_avg_step = sum(moving_avg_window2) / len(moving_avg_window2)
 
-            moving_avg_window3.append(loss)
-            moving_avg_loss = sum(moving_avg_window3) / len(moving_avg_window3)
+            if loss != None:
+                moving_avg_window3.append(loss)
+                moving_avg_loss = sum(moving_avg_window3) / len(moving_avg_window3)
 
             wandb.log({
                 "avg_reward" : moving_avg_reward,
@@ -203,7 +206,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 agent.save_model(full_path, model_file)
         
         print('Complete')
-        agent.plot_durations(show_result=True)
+        agent.plot_durations(show_result=False)
         plt.ioff()
         plt.show()
             
