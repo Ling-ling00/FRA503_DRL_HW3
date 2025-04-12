@@ -103,15 +103,15 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # hyperparameters
     num_of_action = 7
     action_range = [-25, 25]  
-    learning_rate = 0.00001
-    hidden_dim = 128
+    learning_rate = 0.0001
+    hidden_dim = 64
     n_episodes = 5000
     initial_epsilon = 1.0
     epsilon_decay = 0.9995  
-    final_epsilon = 0.1
+    final_epsilon = 0.01
     discount = 0.95
-    buffer_size = 5000
-    batch_size = 64
+    buffer_size = 1000
+    batch_size = 256
 
 
     # set up matplotlib
@@ -149,6 +149,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     moving_avg_window = deque(maxlen=100)  # For smoothing rewards
     moving_avg_window2 = deque(maxlen=100) # For smoothing step
+    moving_avg_window3 = deque(maxlen=100) # For smoothing loss
 
     # Start a new wandb run to track this script.
     wandb.init(
@@ -166,7 +167,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         # with torch.inference_mode():
 
         for episode in tqdm(range(n_episodes)):
-            cumulative_rewards, steps = agent.learn(env)
+            cumulative_rewards, steps, loss = agent.learn(env)
 
             cumulative_reward = sum(cumulative_rewards) / len(cumulative_rewards)
             step = sum(steps) / len(steps)
@@ -177,12 +178,17 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             moving_avg_window2.append(step)
             moving_avg_step = sum(moving_avg_window2) / len(moving_avg_window2)
 
+            moving_avg_window3.append(loss)
+            moving_avg_loss = sum(moving_avg_window3) / len(moving_avg_window3)
+
             wandb.log({
                 "avg_reward" : moving_avg_reward,
                 "reward" : cumulative_reward,
                 "epsilon" : agent.epsilon,
                 "avg_step" : moving_avg_step,
                 "step" : step,
+                "avg_loss" : moving_avg_loss,
+                "loss" : loss,
             })
 
             sum_reward += cumulative_reward

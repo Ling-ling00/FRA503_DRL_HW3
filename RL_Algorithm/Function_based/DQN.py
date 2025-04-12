@@ -121,9 +121,10 @@ class DQN(BaseAlgorithm):
         Select an action based on an epsilon-greedy policy.
         
         Args:
-            state (Tensor): The current state of the environment.
+            state (np.array): The current state of the environment.
         
         Returns:
+            int: action index
             Tensor: The selected action.
         """
         # ========= put your code here ========= #
@@ -153,10 +154,13 @@ class DQN(BaseAlgorithm):
             Tensor: Computed loss.
         """
         # ========= put your code here ========= #
-        state_action_values = self.policy_net(state_batch).gather(1, action_batch.unsqueeze(1)).squeeze(1)
-        next_state_values = torch.zeros(self.batch_size, device=self.device)
-        next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1)[0].detach()
-        expected_state_action_values = reward_batch + (self.discount_factor * next_state_values)
+        state_action_values = self.policy_net(state_batch).gather(1, action_batch.unsqueeze(1)) # shape: [batch_size, 1]
+        next_state_values = torch.zeros(self.batch_size , device=self.device) # shape: [batch_size]
+
+        if non_final_next_states.size(0) > 0:
+            next_state_values[non_final_mask] = self.target_net(non_final_next_states).max(1)[0].detach() # shape: [num_non_final]
+            
+        expected_state_action_values = (reward_batch + (self.discount_factor * next_state_values)).unsqueeze(1)
         return F.smooth_l1_loss(state_action_values, expected_state_action_values)
         # ====================================== #
 
@@ -196,6 +200,8 @@ class DQN(BaseAlgorithm):
             float: Loss value after the update.
         """
         # Generate a sample batch
+        if self.memory.__len__() < self.batch_size:
+            return
         sample = self.generate_sample(self.batch_size)
         if sample is None:
             return
@@ -208,7 +214,7 @@ class DQN(BaseAlgorithm):
         # ========= put your code here ========= #
         self.optimizer.zero_grad()
         loss.backward()
-        nn.utils.clip_grad_value_(self.policy_net.parameters(), 100)
+        # nn.utils.clip_grad_value_(self.policy_net.parameters(), 100)
         self.optimizer.step()
         return loss.item()
         # ====================================== #
@@ -219,21 +225,19 @@ class DQN(BaseAlgorithm):
         """
         # Retrieve the state dictionaries (weights) of both networks
         # ========= put your code here ========= #
-        for target_param, policy_param in zip(self.target_net.parameters(), self.policy_net.parameters()):
-            # Apply the soft update rule to each parameter in the target network
-            target_param.data.copy_(
-                self.tau * policy_param.data + (1.0 - self.tau) * target_param.data
-            )
+        target_net_state_dict = self.target_net.state_dict()
+        policy_net_state_dict = self.policy_net.state_dict()
         # ====================================== #
         
         # Apply the soft update rule to each parameter in the target network
         # ========= put your code here ========= #
-        
+        for key in target_net_state_dict:
+            target_net_state_dict[key] = self.tau * policy_net_state_dict[key] + (1.0 - self.tau) * target_net_state_dict[key]
         # ====================================== #
         
         # Load the updated weights into the target network
         # ========= put your code here ========= #
-        
+        self.target_net.load_state_dict(target_net_state_dict)
         # ====================================== #
 
     def learn(self, env):
@@ -256,6 +260,7 @@ class DQN(BaseAlgorithm):
         dones = [False] * num_envs
         cumulative_rewards = [0.0] * num_envs
         steps = [0] * num_envs
+        loss = [0.0] * num_envs
         # ====================================== #
 
         while not all(dones):
@@ -297,20 +302,22 @@ class DQN(BaseAlgorithm):
                     steps[i] += 1
                     dones[i] = done
                     state_list[i] = next_state_list[i]
+            
             if all(dones):
-                self.plot_durations(max(steps), True)
+                self.plot_durations(max(steps), False)
             # ====================================== #
 
             # Update state
 
             # Perform one step of the optimization (on the policy network)
-            self.update_policy()
-
+            loss = self.update_policy()
+            self.training_error.append(loss)
             # Soft update of the target network's weights
             self.update_target_networks()
+
         self.decay_epsilon()
 
-        return cumulative_rewards, steps
+        return cumulative_rewards, steps, loss
 
     # Consider modifying this function to visualize other aspects of the training process.
     # ================================================================================== #
