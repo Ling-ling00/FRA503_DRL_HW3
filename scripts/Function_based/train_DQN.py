@@ -104,10 +104,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     num_of_action = 7
     action_range = [-25, 25]  
     learning_rate = 0.0001
-    hidden_dim = 64
+    hidden_dim = 128
     n_episodes = 5000
     initial_epsilon = 1.0
-    epsilon_decay = 0.9995  
+    epsilon_decay = 0.9994  
     final_epsilon = 0.01
     discount = 0.95
     buffer_size = 1000
