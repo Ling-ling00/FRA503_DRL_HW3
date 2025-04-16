@@ -106,7 +106,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     learning_rate = 0.0001
     n_episodes = 5000
     initial_epsilon = 1.0
-    epsilon_decay = 0.9994  
+    epsilon_decay = 0.9995  
     final_epsilon = 0.01
     discount = 0.95
 
@@ -129,6 +129,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     task_name = str(args_cli.task).split('-')[0]  # Stabilize, SwingUp
     Algorithm_name = "Linear_Q"
+    exp_name = "learning_rate_0.0001"
 
     agent = Linear_Q(
         num_of_action=num_of_action,
@@ -148,7 +149,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     wandb.init(
         # Set the wandb project where this run will be logged.
         project="DRL_HW3",
-        name="LinearDN_test"
+        name=f"LinearDN_{exp_name}"
     ) 
 
     # reset environment
@@ -193,7 +194,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
                 # Save Q-Learning agent
                 w_file = f"{Algorithm_name}_{episode}_{num_of_action}_{action_range[1]}.json"
-                full_path = os.path.join(f"model/{task_name}", Algorithm_name)
+                full_path = os.path.join(f"model/{task_name}", f"{Algorithm_name}/{exp_name}")
                 agent.save_model(full_path, w_file)
         
         print('Complete')

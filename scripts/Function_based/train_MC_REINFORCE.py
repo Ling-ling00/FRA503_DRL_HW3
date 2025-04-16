@@ -128,6 +128,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     task_name = str(args_cli.task).split('-')[0]  # Stabilize, SwingUp
     Algorithm_name = "MC_REINFORCE"
+    exp_name = "learning_rate_0.0001"
 
     agent = MC_REINFORCE(
         device=device,
@@ -147,7 +148,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     wandb.init(
         # Set the wandb project where this run will be logged.
         project="DRL_HW3",
-        name="MC_REINFORCE_test"
+        name=f"MC_REINFORCE_{exp_name}"
     ) 
 
     # reset environment
@@ -192,7 +193,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
                 # Save Q-Learning agent
                 model_file = f"{Algorithm_name}_{episode}_{num_of_action}_{action_range[1]}.pt"
-                full_path = os.path.join(f"model/{task_name}", Algorithm_name)
+                full_path = os.path.join(f"model/{task_name}", f"{Algorithm_name}/{exp_name}")
                 agent.save_model(full_path, model_file)
         
         print('Complete')
