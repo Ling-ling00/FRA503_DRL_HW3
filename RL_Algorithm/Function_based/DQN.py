@@ -66,14 +66,22 @@ class DQN(BaseAlgorithm):
             batch_size: int = 1,
     ) -> None:
         """
-        Initialize the CartPole Agent.
+        Initialize the CartPole Agent using DQN.
 
         Args:
-            learning_rate (float): The learning rate for updating Q-values.
-            initial_epsilon (float): The initial exploration rate.
-            epsilon_decay (float): The rate at which epsilon decays over time.
-            final_epsilon (float): The final exploration rate.
-            discount_factor (float, optional): The discount factor for future rewards. Defaults to 0.95.
+            device (torch.device): Device to run computations on.
+            num_of_action (int): Number of discrete actions.
+            action_range (list): Range for continuous scaled actions.
+            hidden_dim (int): Size of the hidden layer in the neural network.
+            dropout (float): Dropout rate in the network.
+            learning_rate (float): Learning rate for optimizer.
+            tau (float): Soft update factor for target network.
+            initial_epsilon (float): Initial value for epsilon in epsilon-greedy policy.
+            epsilon_decay (float): Decay rate for epsilon.
+            final_epsilon (float): Minimum value epsilon can decay to.
+            discount_factor (float): Discount factor for future rewards.
+            buffer_size (int): Maximum size of the replay buffer.
+            batch_size (int): Batch size for training.
         """     
 
         # Feel free to add or modify any of the initialized variables above.
@@ -132,8 +140,7 @@ class DQN(BaseAlgorithm):
             action_idx = np.random.randint(self.num_of_action)
         else:
             with torch.no_grad():
-                state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
-                q_values = self.policy_net(state_tensor)
+                q_values = self.policy_net(state)
                 action_idx = q_values.argmax(1).item()
 
         return action_idx, self.scale_action(action_idx)
@@ -178,12 +185,6 @@ class DQN(BaseAlgorithm):
         """
         # Ensure there are enough samples in memory before proceeding
         # ========= put your code here ========= #
-        # Sample a batch from memory
-        # batch = self.memory.sample()
-        # ====================================== #
-        
-        # Sample a batch from memory
-        # ========= put your code here ========= #
         if len(self.memory) < batch_size:
             return None
         states, actions, rewards, next_states, dones = self.memory.sample()
@@ -214,7 +215,6 @@ class DQN(BaseAlgorithm):
         # ========= put your code here ========= #
         self.optimizer.zero_grad()
         loss.backward()
-        # nn.utils.clip_grad_value_(self.policy_net.parameters(), 100)
         self.optimizer.step()
         return loss.item()
         # ====================================== #
@@ -242,10 +242,16 @@ class DQN(BaseAlgorithm):
 
     def learn(self, env):
         """
-        Train the agent on a single step.
+        Train the agent for 1 episode. (can using with multi environments)
 
         Args:
             env: The environment to train in.
+
+        Returns:
+            Tuple[List[float], List[int], List[float]]:
+                - List[float]: Episode return for each environment.
+                - List[int]: Alive time steps for each environment.
+                - List[float]: Average TD error for each environment.
         """
 
         # ===== Initialize trajectory collection variables ===== #
@@ -274,7 +280,8 @@ class DQN(BaseAlgorithm):
                     actions_idx.append(0)
                     actions.append(torch.tensor([[0.0]], dtype=torch.float32))
                 else:
-                    a_idx, a_cont = self.select_action(state)
+                    state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
+                    a_idx, a_cont = self.select_action(state_tensor)
                     actions_idx.append(a_idx)
                     actions.append(a_cont)
             actions = torch.cat(actions, dim=0)
@@ -311,7 +318,6 @@ class DQN(BaseAlgorithm):
 
             # Perform one step of the optimization (on the policy network)
             loss = self.update_policy()
-            self.training_error.append(loss)
             # Soft update of the target network's weights
             self.update_target_networks()
 
@@ -351,6 +357,13 @@ class DQN(BaseAlgorithm):
     # ================================================================================== #
 
     def save_model(self, path, filename):
+        """
+        Save model network.
+
+        Args:
+            path (str): Directory to save model.
+            filename (str): Name of the file.
+        """
         os.makedirs(path, exist_ok=True)
         full_path = os.path.join(path, filename)
         torch.save({
@@ -360,6 +373,13 @@ class DQN(BaseAlgorithm):
         }, full_path)
 
     def load_model(self, path, filename):
+        """
+        Load model network.
+
+        Args:
+            path (str): Directory to save model.
+            filename (str): Name of the file.
+        """
         full_path = os.path.join(path, filename)
         checkpoint = torch.load(full_path, map_location=self.device)
         self.policy_net.load_state_dict(checkpoint['policy_net'])

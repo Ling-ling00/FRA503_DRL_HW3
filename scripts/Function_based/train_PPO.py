@@ -10,7 +10,7 @@ from isaaclab.app import AppLauncher
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from RL_Algorithm.Function_based.Linear_Q import Linear_Q
+from RL_Algorithm.Function_based.PPO import PPO_Actor_Critic
 
 from tqdm import tqdm
 import wandb
@@ -101,17 +101,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # ========================= Can be modified ========================== #
 
     # hyperparameters
-    num_of_action = 5
-    action_range = [-15, 15]  
-    learning_rate = 0.3
-    hidden_dim = 1
-    n_episodes = 10000
-    initial_epsilon = 1.0
-    epsilon_decay = 0.9995  
-    final_epsilon = 0.1
-    discount = 0.9
-    buffer_size = 100
-    batch_size = 100
+    num_of_action = 1
+    action_range = [-25, 25]
+    learning_rate = 0.001
+    hidden_dim = 128
+    n_episodes = 5000
+    discount = 0.95
+    clip_epsilon = 0.2
+    epochs = 10
+    batch_size = 256
+    is_discrete = False
 
 
     # set up matplotlib
@@ -131,38 +130,49 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     print("device: ", device)
 
     task_name = str(args_cli.task).split('-')[0]  # Stabilize, SwingUp
-    Algorithm_name = "Linear_Q"
+    Algorithm_name = "PPO"
 
-    agent = Linear_Q(
+    agent = PPO_Actor_Critic(
+        device=device,
         num_of_action=num_of_action,
         action_range=action_range,
         learning_rate=learning_rate,
-        initial_epsilon = initial_epsilon,
-        epsilon_decay = epsilon_decay,
-        final_epsilon = final_epsilon,
+        hidden_dim=hidden_dim,
         discount_factor = discount,
+        clip_epsilon = clip_epsilon,
+        epochs = epochs,
+        batch_size = batch_size,
+        is_discrete = is_discrete,
     )
 
     moving_avg_window = deque(maxlen=100)  # For smoothing rewards
     moving_avg_window2 = deque(maxlen=100) # For smoothing step
+    moving_avg_window3 = deque(maxlen=100) # For smoothing loss actor
+    moving_avg_window4 = deque(maxlen=100) # For smoothing loss critic
 
     # Start a new wandb run to track this script.
     wandb.init(
         # Set the wandb project where this run will be logged.
         project="DRL_HW3",
-        name="LinearDN_test"
+        name="PPO_test"
     ) 
 
     # reset environment
     timestep = 0
     sum_reward = 0
+    moving_avg_loss_a = 0
+    actor_loss = 0
+    critic_loss = 0
     # simulate environment
     while simulation_app.is_running():
         # run everything in inference mode
         # with torch.inference_mode():
-        
+
         for episode in tqdm(range(n_episodes)):
-            cumulative_reward, step = agent.learn(env, 1000)
+            cumulative_rewards, steps, actor_loss, critic_loss = agent.learn(env)
+
+            cumulative_reward = sum(cumulative_rewards) / len(cumulative_rewards)
+            step = sum(steps) / len(steps)
 
             moving_avg_window.append(cumulative_reward)
             moving_avg_reward = sum(moving_avg_window) / len(moving_avg_window)
@@ -170,29 +180,41 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             moving_avg_window2.append(step)
             moving_avg_step = sum(moving_avg_window2) / len(moving_avg_window2)
 
+            if actor_loss != None:
+                a_loss = sum(actor_loss) / len(actor_loss)
+                moving_avg_window3.append(a_loss)
+                moving_avg_loss_a = sum(moving_avg_window3) / len(moving_avg_window3)
+
+            if critic_loss != None:
+                c_loss = sum(critic_loss) / len(critic_loss)
+                moving_avg_window4.append(c_loss)
+                moving_avg_loss_c = sum(moving_avg_window4) / len(moving_avg_window4)
+
             wandb.log({
                 "avg_reward" : moving_avg_reward,
                 "reward" : cumulative_reward,
-                "epsilon" : agent.epsilon,
                 "avg_step" : moving_avg_step,
                 "step" : step,
+                "actor_avg_loss" : moving_avg_loss_a,
+                "actor_loss" : a_loss,
+                "critic_avg_loss" : moving_avg_loss_c,
+                "critic_loss" : c_loss,
             })
 
             sum_reward += cumulative_reward
             if episode % 100 == 0:
                 print("avg_score: ", sum_reward / 100.0)
                 sum_reward = 0
-                print(agent.epsilon)
 
                 # Save Q-Learning agent
-                w_file = f"{Algorithm_name}_{episode}_{num_of_action}_{action_range[1]}.json"
-                full_path = os.path.join(f"w/{task_name}", Algorithm_name)
-                agent.save_w(full_path, w_file)
+                model_file = f"{Algorithm_name}_{episode}_{num_of_action}_{action_range[1]}.pt"
+                full_path = os.path.join(f"model/{task_name}", Algorithm_name)
+                agent.save_model(full_path, model_file)
         
         print('Complete')
-        # agent.plot_durations(show_result=True)
-        plt.ioff()
-        plt.show()
+        # agent.plot_durations(show_result=False)
+        # plt.ioff()
+        # plt.show()
             
         if args_cli.video:
             timestep += 1

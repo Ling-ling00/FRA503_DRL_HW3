@@ -10,7 +10,7 @@ from isaaclab.app import AppLauncher
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from RL_Algorithm.Function_based.DQN import DQN
+from RL_Algorithm.Function_based.MC_REINFORCE import MC_REINFORCE
 
 from tqdm import tqdm
 import wandb
@@ -102,18 +102,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # hyperparameters
     num_of_action = 7
-    action_range = [-25, 25]  
-    learning_rate = 0.0001
+    action_range = [-25, 25]
+    learning_rate = 0.001
     hidden_dim = 128
     n_episodes = 5000
-    initial_epsilon = 1.0
-    epsilon_decay = 0.9994  
-    final_epsilon = 0.01
     discount = 0.95
-    buffer_size = 1000
-    batch_size = 256
     dropout = 0.5
-    tau = 0.005
 
 
     # set up matplotlib
@@ -133,22 +127,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     print("device: ", device)
 
     task_name = str(args_cli.task).split('-')[0]  # Stabilize, SwingUp
-    Algorithm_name = "DQN"
+    Algorithm_name = "MC_REINFORCE"
 
-    agent = DQN(
+    agent = MC_REINFORCE(
         device=device,
         num_of_action=num_of_action,
         action_range=action_range,
-        dropout=dropout,
         learning_rate=learning_rate,
-        tau=tau,
         hidden_dim=hidden_dim,
-        initial_epsilon = initial_epsilon,
-        epsilon_decay = epsilon_decay,
-        final_epsilon = final_epsilon,
         discount_factor = discount,
-        buffer_size = buffer_size,
-        batch_size = batch_size,
+        dropout=dropout
     )
 
     moving_avg_window = deque(maxlen=100)  # For smoothing rewards
@@ -159,7 +147,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     wandb.init(
         # Set the wandb project where this run will be logged.
         project="DRL_HW3",
-        name="DQN_test"
+        name="MC_REINFORCE_test"
     ) 
 
     # reset environment
@@ -173,7 +161,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         # with torch.inference_mode():
 
         for episode in tqdm(range(n_episodes)):
-            cumulative_rewards, steps, loss = agent.learn(env)
+            cumulative_rewards, steps, loss, trajectories = agent.learn(env)
 
             cumulative_reward = sum(cumulative_rewards) / len(cumulative_rewards)
             step = sum(steps) / len(steps)
@@ -191,7 +179,6 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             wandb.log({
                 "avg_reward" : moving_avg_reward,
                 "reward" : cumulative_reward,
-                "epsilon" : agent.epsilon,
                 "avg_step" : moving_avg_step,
                 "step" : step,
                 "avg_loss" : moving_avg_loss,
@@ -202,7 +189,6 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             if episode % 100 == 0:
                 print("avg_score: ", sum_reward / 100.0)
                 sum_reward = 0
-                print(agent.epsilon)
 
                 # Save Q-Learning agent
                 model_file = f"{Algorithm_name}_{episode}_{num_of_action}_{action_range[1]}.pt"
@@ -211,8 +197,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         
         print('Complete')
         # agent.plot_durations(show_result=False)
-        plt.ioff()
-        plt.show()
+        # plt.ioff()
+        # plt.show()
             
         if args_cli.video:
             timestep += 1

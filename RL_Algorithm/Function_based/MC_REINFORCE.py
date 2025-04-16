@@ -1,6 +1,6 @@
 from __future__ import annotations
 import numpy as np
-from RL_Algorithm.RL_base_function_approximation import BaseAlgorithm, ControlType
+from RL_Algorithm.RL_base_function import BaseAlgorithm
 
 
 import torch
@@ -12,6 +12,7 @@ from collections import namedtuple, deque
 import random
 import matplotlib
 import matplotlib.pyplot as plt
+import os
 
 class MC_REINFORCE_network(nn.Module):
     """
@@ -27,7 +28,13 @@ class MC_REINFORCE_network(nn.Module):
     def __init__(self, n_observations, hidden_size, n_actions, dropout):
         super(MC_REINFORCE_network, self).__init__()
         # ========= put your code here ========= #
-        pass
+        self.net = nn.Sequential(
+            nn.Linear(n_observations, hidden_size),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_size, n_actions),
+            nn.Softmax(dim=-1)  # Output probabilities
+        )
         # ====================================== #
 
     def forward(self, x):
@@ -41,7 +48,7 @@ class MC_REINFORCE_network(nn.Module):
             Tensor: Output tensor representing action probabilities.
         """
         # ========= put your code here ========= #
-        pass
+        return self.net(x)
         # ====================================== #
 
 class MC_REINFORCE(BaseAlgorithm):
@@ -60,11 +67,13 @@ class MC_REINFORCE(BaseAlgorithm):
         Initialize the CartPole Agent.
 
         Args:
-            learning_rate (float): The learning rate for updating Q-values.
-            initial_epsilon (float): The initial exploration rate.
-            epsilon_decay (float): The rate at which epsilon decays over time.
-            final_epsilon (float): The final exploration rate.
-            discount_factor (float, optional): The discount factor for future rewards. Defaults to 0.95.
+            device (torch.device): Device to run computations on.
+            num_of_action (int): Number of discrete actions.
+            action_range (list): Range for continuous scaled actions.
+            hidden_dim (int): Size of the hidden layer in the neural network.
+            dropout (float): Dropout rate in the network.
+            learning_rate (float): Learning rate for optimizer.
+            discount_factor (float): Discount factor for future rewards.
         """     
 
         # Feel free to add or modify any of the initialized variables above.
@@ -75,14 +84,11 @@ class MC_REINFORCE(BaseAlgorithm):
         self.optimizer = optim.AdamW(self.policy_net.parameters(), lr=learning_rate)
 
         self.device = device
-        self.steps_done = 0
-
         self.episode_durations = []
 
         # Experiment with different values and configurations to see how they affect the training process.
         # Remember to document any changes you make and analyze their impact on the agent's performance.
 
-        pass
         # ====================================== #
 
         super(MC_REINFORCE, self).__init__(
@@ -104,24 +110,60 @@ class MC_REINFORCE(BaseAlgorithm):
         Compute stepwise returns for the trajectory.
 
         Args:
-            rewards (list): List of rewards obtained in the episode.
+            rewards (list(float)): List of rewards obtained in the episode.
         
         Returns:
             Tensor: Normalized stepwise returns.
         """
         # ========= put your code here ========= #
-        pass
+        R = 0
+        returns = []
+        for r in reversed(rewards):
+            R = r + self.discount_factor * R
+            returns.insert(0, R)
+        returns = torch.tensor(returns, dtype=torch.float32).to(self.device)
+        if len(returns) > 1:
+            returns = (returns - returns.mean()) / (returns.std() + 1e-8)
+        return returns
+        # ====================================== #
+
+    def select_action(self, state):
+        """
+        Selects an action based on the current policy.
+        
+        Args:
+        state (Tensor): The current state of the environment.
+
+        Returns:
+            Tuple[int, Tensor, distributions.Categorical]:
+                - int: Index of the selected action.
+                - Tensor: Scaled continuous action.
+                - Categorical: Torch distribution object used for sampling/log_probs.
+        """
+        # ========= put your code here ========= #
+        with torch.no_grad():
+            probs = self.policy_net(state).to(self.device)
+            dist = distributions.Categorical(probs)
+            action_idx = dist.sample()
+            action = self.scale_action(action_idx.item())
+            return action_idx.item(), action, dist
         # ====================================== #
 
     def generate_trajectory(self, env):
         """
-        Generate a trajectory by interacting with the environment.
+        Generate a trajectory by interacting with the environment. (can using with multi environments)
 
         Args:
             env: The environment object.
         
         Returns:
-            Tuple: (episode_return, stepwise_returns, log_prob_actions, trajectory)
+            Tuple(List[float], List[int], List[Tensor], List[Tensor], List[List[Tuple]]):
+            - List[float]: Total return for each environment.
+            - List[int]: Episode length for each environment.
+            - List[Tensor]: Discounted and normalized return for each step in each environment.
+            - List[Tensor]: Log probabilities of the actions taken at each step per environment.
+            - List[List[Tuple]]: Full trajectory (state, action, reward) per environment.
+           
         """
         # ===== Initialize trajectory collection variables ===== #
         # Reset environment to get initial state (tensor)
@@ -132,84 +174,137 @@ class MC_REINFORCE(BaseAlgorithm):
         # Flag to indicate episode termination (boolean)
         # Step counter (int)
         # ========= put your code here ========= #
-        pass
+        obs_list, _ = env.reset()
+        state_list = self.extract_policy_state(obs_list)
+        num_envs = len(state_list)
+        dones = [False] * num_envs
+        cumulative_rewards = [0.0] * num_envs
+        steps = [0] * num_envs
+        log_probs_list = [[] for _ in range(num_envs)]
+        rewards_list = [[] for _ in range(num_envs)]
+        trajectory_list = [[] for _ in range(num_envs)]
+        timestep = 0
         # ====================================== #
         
         # ===== Collect trajectory through agent-environment interaction ===== #
-        while not done:
+        while not all(dones):
             
             # Predict action from the policy network
             # ========= put your code here ========= #
-            pass
+            actions_idx = []
+            actions = []
+            dists = []
+
+            for i, state in enumerate(state_list):
+                if dones[i]:
+                    actions_idx.append(0)
+                    actions.append(torch.tensor([[0.0]], dtype=torch.float32))
+                    dists.append(None)
+                else:
+                    state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(self.device)
+                    action_idx, action, dist = self.select_action(state_tensor)
+                    actions.append(action)
+                    actions_idx.append(action_idx)
+                    dists.append(dist)
+            actions = torch.cat(actions, dim=0).to(self.device)
             # ====================================== #
 
             # Execute action in the environment and observe next state and reward
             # ========= put your code here ========= #
-            pass
+            next_obs_list, rewards, terminations, truncations, _ = env.step(actions)
+            next_state_list = self.extract_policy_state(next_obs_list)
             # ====================================== #
 
             # Store action log probability reward and trajectory history
             # ========= put your code here ========= #
-            pass
+            for i in range(num_envs):
+                if not dones[i]:
+                    done = bool(terminations[i].item()) or bool(truncations[i].item())
+                    log_probs_list[i].append(dists[i].log_prob(torch.tensor(actions_idx[i]).to(self.device)))
+                    rewards_list[i].append(rewards[i].item())
+                    trajectory_list[i].append((state_list[i], actions_idx[i], rewards[i].item()))
+                    cumulative_rewards[i] += rewards[i].item()
+                    steps[i] += 1
+                    dones[i] = done
+                    state_list[i] = next_state_list[i]
             # ====================================== #
             
             # Update state
 
             timestep += 1
-            if done:
-                self.plot_durations(timestep)
-                break
+            # if done:
+            #     self.plot_durations(timestep)
+            #     break
 
         # ===== Stack log_prob_actions &  stepwise_returns ===== #
         # ========= put your code here ========= #
-        pass
+        all_returns = []
+        all_log_probs = []
+        for i in range(num_envs):
+            stepwise_returns = self.calculate_stepwise_returns(rewards_list[i])
+            all_returns.append(stepwise_returns)
+            all_log_probs.append(torch.stack(log_probs_list[i]).squeeze(-1))
+
+        return cumulative_rewards, steps, all_returns, all_log_probs, trajectory_list
         # ====================================== #
     
-    def calculate_loss(self, stepwise_returns, log_prob_actions):
+    def calculate_loss(self, returns_batch, log_probs_batch):
         """
         Compute the loss for policy optimization.
 
         Args:
-            stepwise_returns (Tensor): Stepwise returns for the trajectory.
-            log_prob_actions (Tensor): Log probabilities of actions taken.
+            returns_batch (List[Tensor]): List of return tensors for each trajectory.
+            log_probs_batch (List[Tensor]): List of log-probability tensors for each trajectory.
         
         Returns:
             Tensor: Computed loss.
         """
         # ========= put your code here ========= #
-        pass
+        loss = torch.tensor(0.0, device=self.device)
+        for R, log_probs in zip(returns_batch, log_probs_batch):
+            loss += -(log_probs * R).sum()
+        loss /= sum(len(R) for R in returns_batch)
+        return loss
         # ====================================== #
 
-    def update_policy(self, stepwise_returns, log_prob_actions):
+    def update_policy(self, returns_batch, log_probs_batch):
         """
         Update the policy using the calculated loss.
 
         Args:
-            stepwise_returns (Tensor): Stepwise returns.
-            log_prob_actions (Tensor): Log probabilities of actions taken.
+            returns_batch (List[Tensor]): List of return tensors for each trajectory.
+            log_probs_batch (List[Tensor]): List of log-probability tensors for each trajectory.
         
         Returns:
             float: Loss value after the update.
         """
         # ========= put your code here ========= #
-        pass
+        loss = self.calculate_loss(returns_batch, log_probs_batch)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        return loss.item()
         # ====================================== #
     
     def learn(self, env):
         """
-        Train the agent on a single episode.
+        Train the agent on a single episode. (can using with multi environments)
 
         Args:
             env: The environment to train in.
         
         Returns:
-            Tuple: (episode_return, loss, trajectory)
+            Tuple(List[float], List[int], float, List[List[Tuple]]):
+                - List[float]: Total return per environment.
+                - List[int]: Episode length per environment.
+                - float: Policy loss after the update.
+                - List[List[Tuple]]: Trajectory of (state, action, reward) per env.
         """
         # ========= put your code here ========= #
         self.policy_net.train()
-        episode_return, stepwise_returns, log_prob_actions, trajectory = self.generate_trajectory(env)
+        episode_return, step, stepwise_returns, log_prob_actions, trajectory = self.generate_trajectory(env)
         loss = self.update_policy(stepwise_returns, log_prob_actions)
-        return episode_return, loss, trajectory
+        return episode_return, step, loss, trajectory
         # ====================================== #
 
 
@@ -243,3 +338,31 @@ class MC_REINFORCE(BaseAlgorithm):
             else:
                 display.display(plt.gcf())
     # ================================================================================== #
+
+    def save_model(self, path, filename):
+        """
+        Save model network.
+
+        Args:
+            path (str): Directory to save model.
+            filename (str): Name of the file.
+        """
+        os.makedirs(path, exist_ok=True)
+        full_path = os.path.join(path, filename)
+        torch.save({
+            'policy_net': self.policy_net.state_dict(),
+            'optimizer': self.optimizer.state_dict(),
+        }, full_path)
+
+    def load_model(self, path, filename):
+        """
+        Load model network.
+
+        Args:
+            path (str): Directory to save model.
+            filename (str): Name of the file.
+        """
+        full_path = os.path.join(path, filename)
+        checkpoint = torch.load(full_path, map_location=self.device)
+        self.policy_net.load_state_dict(checkpoint['policy_net'])
+        self.optimizer.load_state_dict(checkpoint['optimizer'])

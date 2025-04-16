@@ -2,8 +2,6 @@ import numpy as np
 from collections import defaultdict, namedtuple, deque
 import random
 from enum import Enum
-import os
-import json
 import torch
 import torch.nn as nn
 
@@ -29,29 +27,30 @@ class ReplayBuffer:
         self.memory = deque(maxlen=buffer_size)
         self.batch_size = batch_size
 
-    def add(self, state, action, reward, next_state, done):
+    def add(self, state, action_idx, reward, next_state, done):
         """
         Adds an experience to the replay buffer.
 
         Args:
             state (Tensor): The current state of the environment.
-            action (Tensor): The action taken at this state.
-            reward (Tensor): The reward received after taking the action.
+            action_idx (int): The action index of action taken at this state.
+            reward (float): The reward received after taking the action.
             next_state (Tensor): The next state resulting from the action.
             done (bool): Whether the episode has terminated.
         """
-        self.memory.append((state, action, reward, next_state, done))
+        self.memory.append((state, action_idx, reward, next_state, done))
 
     def sample(self):
         """
         Samples a batch of experiences from the replay buffer.
 
         Returns:
-            - state_batch: Batch of states.
-            - action_batch: Batch of actions.
-            - reward_batch: Batch of rewards.
-            - next_state_batch: Batch of next states.
-            - done_batch: Batch of terminal state flags.
+            tuple:
+                - state_batch (Tensor): Batch of states.
+                - action_batch (Tensor): Batch of actions.
+                - reward_batch (Tensor): Batch of rewards.
+                - next_state_batch (Tensor): Batch of next states.
+                - done_batch (Tensor): Batch of terminal state flags.
         """
         experiences = random.sample(self.memory, k=self.batch_size)
         state_batch, action_batch, reward_batch, next_state_batch, done_batch = zip(*experiences)
@@ -81,15 +80,13 @@ class BaseAlgorithm():
     Attributes:
         num_of_action (int): Number of discrete actions available.
         action_range (list): Scale for continuous action mapping.
-        discretize_state_scale (list): Scale factors for discretizing states.
-        lr (float): Learning rate for updates.
-        epsilon (float): Initial epsilon value for epsilon-greedy policy.
-        epsilon_decay (float): Rate at which epsilon decays.
+        learning_rate (float): Learning rate for updates.
+        initial_epsilon (float): Initial epsilon value for epsilon-greedy policy.
+        epsilon_decay (float): Rate at which epsilon decays. (exp decay)
         final_epsilon (float): Minimum epsilon value allowed.
         discount_factor (float): Discount factor for future rewards.
-        q_values (dict): Q-values for state-action pairs.
-        n_values (dict): Count of state-action visits (for Monte Carlo method).
-        training_error (list): Stores training errors for analysis.
+        buffer_size (int): Maximum number of experiences the buffer can hold.
+        batch_size (int): Number of experiences to sample per batch.
     """
 
     def __init__(
@@ -98,7 +95,7 @@ class BaseAlgorithm():
         action_range: list = [-2.0, 2.0],
         learning_rate: float = 1e-3,
         initial_epsilon: float = 1.0,
-        epsilon_decay: float = 1e-3,
+        epsilon_decay: float = 0.9995,
         final_epsilon: float = 0.001,
         discount_factor: float = 0.95,
         buffer_size: int = 1000,
@@ -113,24 +110,7 @@ class BaseAlgorithm():
         self.num_of_action = num_of_action
         self.action_range = action_range  # [action_min, action_max]
 
-        self.q_values = defaultdict(lambda: np.zeros(self.num_of_action))
-        self.n_values = defaultdict(lambda: np.zeros(self.num_of_action))
-        self.training_error = []
-
-        self.w = np.zeros((4, num_of_action))
-        self.memory = ReplayBuffer(buffer_size, batch_size)
-
-    def q(self, obs, a=None):
-        """Returns the linearly-estimated Q-value for a given state and action."""
-        # ========= put your code here ========= #
-        if a==None:
-            # Get q values from all action in state
-            return obs @ self.w
-        else:
-            # Get q values given action & state
-            return obs @ self.w[:, a]
-        # ====================================== #
-        
+        self.memory = ReplayBuffer(buffer_size, batch_size)        
     
     def scale_action(self, action):
         """
@@ -138,7 +118,6 @@ class BaseAlgorithm():
 
         Args:
             action (int): Discrete action in range [0, n].
-            n (int): Number of discrete actions (inclusive range from 0 to n).
         
         Returns:
             torch.Tensor: Scaled action tensor.
@@ -160,33 +139,18 @@ class BaseAlgorithm():
         return self.epsilon
         # ====================================== #
 
-    def save_w(self, path, filename):
-        """
-        Save weight parameters.
-        """
-        # ========= put your code here ========= #
-        os.makedirs(path, exist_ok=True)
-        full_path = os.path.join(path, filename)
-        with open(full_path, 'w') as f:
-            json.dump(self.w.tolist(), f)
-        # ====================================== #
-            
-    def load_w(self, path, filename):
-        """
-        Load weight parameters.
-        """
-        # ========= put your code here ========= #
-        full_path = os.path.join(path, filename)
-        with open(full_path, 'r') as f:
-            self.w = np.array(json.load(f))
-        # ====================================== #
-
     def extract_policy_state(self, obs):
+        """
+        Extract policy state from dict to numpy array and normalize.
+
+        Args:
+            obs (dict): State observation.
+        
+        Returns:
+            np.ndarray: Normalized policy state.
+        """
         policy = obs['policy']
-        if policy.shape[0]==1:
-            state = np.array(policy[0, :4].tolist(), dtype=np.float32)
-        else:
-            state = np.array(policy[:, :4].tolist(), dtype=np.float32)
+        state = np.array(policy[:, :4].tolist(), dtype=np.float32)
         
         # Define bounds as arrays
         bound = np.array([ 3,  np.deg2rad(24),  5,  5], dtype=np.float32)
