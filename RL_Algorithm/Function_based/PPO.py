@@ -69,7 +69,7 @@ class PPO_Actor(nn.Module):
             return probs
         else:
             mu = self.mu_net(x)
-            std = self.std_net.exp().expand_as(mu)
+            std = std = torch.clamp(self.std_net.exp(), min=1e-6, max=1.0).expand_as(mu)
             return mu, std
         # ====================================== #
 
@@ -130,6 +130,7 @@ class PPO_Actor_Critic(BaseAlgorithm):
                 clip_epsilon=0.2,
                 epochs=10,
                 batch_size=64,
+                entropy_coef = 0.01,
                 is_discrete=True
                 ):
         """
@@ -153,6 +154,7 @@ class PPO_Actor_Critic(BaseAlgorithm):
         self.clip_epsilon = clip_epsilon
         self.epochs = epochs
         self.is_discrete = is_discrete
+        self.entropy_coef = entropy_coef
 
         self.actor = PPO_Actor(n_observations, hidden_dim, num_of_action, is_discrete).to(device)
         self.critic = PPO_Critic(n_observations, hidden_dim).to(device)
@@ -203,7 +205,7 @@ class PPO_Actor_Critic(BaseAlgorithm):
                 return action_raw, action, log_prob.item()
         # ====================================== #
     
-    def compute_advantages(self, rewards, values, dones, next_value):
+    def compute_advantages(self, rewards, values, dones, next_value, lam=0.95):
         """
         Compute returns and advantages.
 
@@ -218,15 +220,18 @@ class PPO_Actor_Critic(BaseAlgorithm):
                 - returns: Discounted cumulative rewards.
                 - advantages: Advantage estimates (returns - values).
         """
-        returns = []
-        R = next_value
+        values = values + [next_value]
+        advantages = []
+        gae = 0
         for step in reversed(range(len(rewards))):
-            R = rewards[step] + self.discount_factor * R * (1 - dones[step])
-            returns.insert(0, R)
-        returns = torch.tensor(returns, dtype=torch.float32).to(self.device)
-        values = torch.tensor(values, dtype=torch.float32).to(self.device)
-        advantages = returns - values
-        return returns, advantages
+            delta = rewards[step] + self.discount_factor * values[step + 1] * (1 - dones[step]) - values[step]
+            gae = delta + self.discount_factor * lam * (1 - dones[step]) * gae
+            advantages.insert(0, gae)
+        returns = [adv + val for adv, val in zip(advantages, values[:-1])]
+        advantages = torch.tensor(advantages, dtype=torch.float32).to(self.device)
+        if len(advantages) > 1:
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        return torch.tensor(returns, dtype=torch.float32).to(self.device), advantages
     
     def generate_trajectory(self, env):
         """
@@ -309,7 +314,7 @@ class PPO_Actor_Critic(BaseAlgorithm):
                 - float: Actor loss.
                 - float: Critic loss.
         """
-        states = torch.tensor(states, dtype=torch.float32).to(self.device)
+        states = torch.from_numpy(np.array(states)).float().to(self.device)
         actions = torch.tensor(actions, dtype=torch.float32).to(self.device)
         old_log_probs = torch.tensor(old_log_probs, dtype=torch.float32).to(self.device)
 
@@ -318,16 +323,18 @@ class PPO_Actor_Critic(BaseAlgorithm):
                 probs = self.actor(states)
                 dist = distributions.Categorical(probs)
                 log_probs = dist.log_prob(actions)
+                entropy = dist.entropy().mean()
             else:
                 mu, std = self.actor(states)
                 dist = distributions.Normal(mu, std)
                 log_probs = dist.log_prob(actions).sum(-1)
                 log_probs -= (2*(np.log(2) - actions - F.softplus(-2*actions))).sum(-1)
+                entropy = dist.entropy().sum(-1).mean()
 
             ratio = torch.exp(log_probs - old_log_probs)
             surr1 = ratio * advantages
             surr2 = torch.clamp(ratio, 1.0 - self.clip_epsilon, 1.0 + self.clip_epsilon) * advantages
-            actor_loss = -torch.min(surr1, surr2).mean()
+            actor_loss = -torch.min(surr1, surr2).mean() - self.entropy_coef * entropy
 
             values = self.critic(states).squeeze(-1)
             critic_loss = F.mse_loss(values, returns)

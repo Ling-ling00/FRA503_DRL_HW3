@@ -101,15 +101,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # ========================= Can be modified ========================== #
 
     # hyperparameters
-    num_of_action = 1
+    num_of_action = 7
     action_range = [-25, 25]
-    learning_rate = 0.001
+    learning_rate = 0.01
     hidden_dim = 128
     n_episodes = 5000
     discount = 0.95
     clip_epsilon = 0.2
     epochs = 10
     batch_size = 256
+    entropy_coef = 0.01
     is_discrete = False
 
 
@@ -131,7 +132,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     task_name = str(args_cli.task).split('-')[0]  # Stabilize, SwingUp
     Algorithm_name = "PPO"
-    exp_name = "learning_rate_0.0001"
+    exp_name = "learning_rate_0.01"
 
     agent = PPO_Actor_Critic(
         device=device,
@@ -144,6 +145,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         epochs = epochs,
         batch_size = batch_size,
         is_discrete = is_discrete,
+        entropy_coef=entropy_coef
     )
 
     moving_avg_window = deque(maxlen=100)  # For smoothing rewards
