@@ -141,12 +141,11 @@ class MC_REINFORCE(BaseAlgorithm):
                 - Categorical: Torch distribution object used for sampling/log_probs.
         """
         # ========= put your code here ========= #
-        with torch.no_grad():
-            probs = self.policy_net(state).to(self.device)
-            dist = distributions.Categorical(probs)
-            action_idx = dist.sample()
-            action = self.scale_action(action_idx.item())
-            return action_idx.item(), action, dist
+        probs = self.policy_net(state).to(self.device)
+        dist = distributions.Categorical(probs)
+        action_idx = dist.sample()
+        action = self.scale_action(action_idx.item())
+        return action_idx.item(), action, dist
         # ====================================== #
 
     def generate_trajectory(self, env):
