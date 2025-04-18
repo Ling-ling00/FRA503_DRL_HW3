@@ -55,6 +55,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import numpy as np
+import json
 
 
 from isaaclab.envs import (
@@ -102,9 +103,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # hyperparameters
     num_of_action = 7
     action_range = [-25, 25]
-    learning_rate = 0.00005
-    hidden_dim = 128
-    n_episodes = 5000
+    learning_rate = 0.00001
+    hidden_dim = 64
+    n_episodes = 10
     discount = 0.95
     batch_size = 64
     buffer_size = 1000
@@ -142,8 +143,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     task_name = str(args_cli.task).split('-')[0]  # Stabilize, SwingUp
     Algorithm_name = "A2C" 
-    exp_name = "test"
-    episode = 1700
+    exp_name = "learning_rate_0.00001"
+    episode = 1900
     q_value_file = f"{Algorithm_name}_{episode}_{num_of_action}_{action_range[1]}.pt"
     full_path = os.path.join(f"model/{task_name}", f"{Algorithm_name}/{exp_name}")
     agent.load_model(full_path, q_value_file)
@@ -151,6 +152,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # reset environment
     obs, _ = env.reset()
     timestep = 0
+    state_log = []
+    steps = []
     # simulate environment
     while simulation_app.is_running():
         # run everything in inference mode
@@ -159,6 +162,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             for episode in range(n_episodes):
                 obs, _ = env.reset()
                 done = False
+                state_log.append([])
+                step = 0
 
                 while not done:
                     # agent stepping
@@ -171,7 +176,32 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
                     done = terminated or truncated
                     obs = next_obs
-            
+
+                    state_log[-1].append(state[0])
+                    step += 1
+                steps.append(step)
+                print(episode)
+
+            max_step = np.argmax(steps)
+            min_step = np.argmin(steps)
+
+            episode_data = {
+                "max_step_episode": int(max_step),
+                "min_step_episode": int(min_step),
+                "max_episode": [[float(x) for x in state] for state in state_log[max_step]],
+                "min_episode": [[float(x) for x in state] for state in state_log[min_step]]
+            }
+
+            # Save to JSON file
+            output_dir = os.path.join("results", Algorithm_name, exp_name)
+            os.makedirs(output_dir, exist_ok=True)
+
+            json_path = os.path.join(output_dir, f"ep{episode}_log.json")
+            with open(json_path, "w") as f:
+                json.dump(episode_data, f, indent=4)
+
+            print(f"Saved episode data to {json_path}")
+
         if args_cli.video:
             timestep += 1
             # Exit the play loop after recording one video
