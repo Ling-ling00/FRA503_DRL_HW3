@@ -26,7 +26,7 @@
 **/videos/*
 **/wandb/*
 **/.neptune/*
-**/model/*
+# **/model/*
 docker/artifacts/
 *.tmp
 

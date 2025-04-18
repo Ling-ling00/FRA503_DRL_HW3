@@ -136,9 +136,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     task_name = str(args_cli.task).split('-')[0]  # Stabilize, SwingUp
     Algorithm_name = "MC_REINFORCE" 
+    exp_name = "learning_rate_0.0001"
     episode = 4900
     q_value_file = f"{Algorithm_name}_{episode}_{num_of_action}_{action_range[1]}.pt"
-    full_path = os.path.join(f"w/{task_name}", Algorithm_name)
+    full_path = os.path.join(f"model/{task_name}", f"{Algorithm_name}/{exp_name}")
     agent.load_model(full_path, q_value_file)
 
     # reset environment
